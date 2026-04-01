@@ -270,6 +270,13 @@ ${plan.parallel_summary}
 
 async function processPRD(task) {
   const taskId = task.id ?? task.task_id
+
+  // Проверяем что задача из нужного списка — не трогаем чужие задачи
+  if (task.list?.id && task.list.id !== LIST_ID) {
+    console.log(`⏭️ Пропускаем задачу из другого списка: ${task.list.id}`)
+    return
+  }
+
   console.log(`\n🤖 PM-агент обрабатывает: ${task.name}`)
 
   try {
