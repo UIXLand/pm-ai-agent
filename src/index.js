@@ -435,11 +435,22 @@ app.post('/webhook', async (req, res) => {
   const eventType = raw.event ?? payload.event
   const taskId = payload.id || payload.task_id || raw.task_id
 
-  console.log(`\n📥 Webhook: ${eventType} | task: ${taskId}`)
+  console.log(`\n📥 Webhook: ${eventType ?? 'automation'} | task: ${taskId}`)
 
   if (!taskId) return
 
   try {
+    // Если eventType не определён (ClickUp Automation) — читаем задачу и проверяем теги
+    if (!eventType) {
+      const task = await getTask(taskId)
+      const tags = task.tags?.map(t => (t.name ?? t)?.toLowerCase()) ?? []
+      if (tags.includes('prd') || tags.includes('ready for pm agent')) {
+        console.log(`📋 Automation webhook — найден тег prd: ${task.name}`)
+        await processPRD(task)
+      }
+      return
+    }
+
     // Триггер 1 — задача создана с тегом "prd" или "ready for pm agent"
     if (eventType === 'taskCreated') {
       const task = { id: taskId, name: payload.name ?? 'New Task', tags: payload.tags ?? [] }
