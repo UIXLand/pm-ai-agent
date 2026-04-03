@@ -20,6 +20,9 @@ const clickup = axios.create({
 
 const TEAM_ID = process.env.CLICKUP_TEAM_ID
 const LIST_ID = process.env.CLICKUP_LIST_ID
+
+// Защита от повторной обработки одной задачи
+const processedTasks = new Set()
 const SPRINT_ID = process.env.CLICKUP_SPRINT_ID
 const PM_AGENT_USER_ID = process.env.PM_AGENT_USER_ID
 const PORT = process.env.PORT || 3000
@@ -513,9 +516,49 @@ function sleep(ms) {
 // ЗАПУСК
 // ─────────────────────────────────────────
 
+// Polling: проверка задач с тегом "prd" каждые 5 минут
+async function pollForPRDTasks() {
+  try {
+    const r = await clickup.get(`/list/${LIST_ID}/task`, {
+      params: { tags: ['prd', 'ready for pm agent'], include_closed: false, page: 0 }
+    })
+    const tasks = r.data.tasks ?? []
+    console.log(`\n⏰ Polling PRD задач: найдено ${tasks.length}`)
+
+    for (const task of tasks) {
+      // Пропускаем уже обработанные задачи
+      if (processedTasks.has(task.id)) continue
+
+      // Проверяем что задача не была уже обработана (есть комментарий от PM агента)
+      const comments = await getComments(task.id)
+      const alreadyProcessed = comments.find(c =>
+        c.comment_text?.includes('PM-агент завершил') ||
+        c.comment_text?.includes('PM-агент начал обработку')
+      )
+
+      if (alreadyProcessed) {
+        processedTasks.add(task.id)
+        continue
+      }
+
+      console.log(`📋 Найдена новая PRD задача: ${task.name}`)
+      processedTasks.add(task.id)
+      await processPRD(task)
+      await sleep(1000)
+    }
+  } catch (e) {
+    console.error('Ошибка polling PRD:', e.message)
+  }
+}
+
 // Cron: проверка дедлайнов каждый час в :00
 cron.schedule('0 * * * *', () => {
   checkDeadlines().catch(console.error)
+})
+
+// Cron: polling PRD задач каждые 5 минут
+cron.schedule('*/5 * * * *', () => {
+  pollForPRDTasks().catch(console.error)
 })
 
 app.listen(PORT, () => {
@@ -532,5 +575,6 @@ app.listen(PORT, () => {
   console.log('  2. Статус "ready for pm agent"')
   console.log('  3. Комментарий "@pm-агент" в задаче')
   console.log('  4. POST /process { task_id: "..." }')
+  console.log('  5. Polling каждые 5 минут (тег prd)')
   console.log('')
 })
