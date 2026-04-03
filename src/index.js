@@ -20,6 +20,7 @@ const clickup = axios.create({
 
 const TEAM_ID = process.env.CLICKUP_TEAM_ID
 const LIST_ID = process.env.CLICKUP_LIST_ID
+const SPRINT_ID = process.env.CLICKUP_SPRINT_ID
 const PM_AGENT_USER_ID = process.env.PM_AGENT_USER_ID
 const PORT = process.env.PORT || 3000
 
@@ -104,6 +105,16 @@ async function createTask(params) {
   if (params.due_date) {
     body.due_date = params.due_date
     body.due_date_time = false
+  }
+
+  // Добавляем задачу в спринт если задан SPRINT_ID
+  if (SPRINT_ID) {
+    body.custom_fields = [
+      {
+        id: SPRINT_ID,
+        value: SPRINT_ID
+      }
+    ]
   }
 
   console.log(`📤 POST /list/${LIST_ID}/task — ${body.name}`)
@@ -415,14 +426,21 @@ app.post('/webhook', async (req, res) => {
   // Быстро отвечаем чтобы ClickUp не таймаутился
   res.sendStatus(200)
 
-  const event = req.body
-  console.log(`\n📥 Webhook: ${event.event}`)
+  // ClickUp отправляет данные внутри поля payload
+  const raw = req.body
+  const payload = raw.payload ?? raw
+  const eventType = raw.event ?? payload.event
+  const taskId = payload.id || payload.task_id || raw.task_id
+
+  console.log(`\n📥 Webhook: ${eventType} | task: ${taskId}`)
+
+  if (!taskId) return
 
   try {
     // Триггер 1 — задача создана с тегом "prd" или "ready for pm agent"
-    if (event.event === 'taskCreated') {
-      const task = event.task ?? { id: event.task_id, name: 'New Task' }
-      const tags = task.tags?.map(t => t.name?.toLowerCase()) ?? []
+    if (eventType === 'taskCreated') {
+      const task = { id: taskId, name: payload.name ?? 'New Task', tags: payload.tags ?? [] }
+      const tags = task.tags?.map(t => (t.name ?? t)?.toLowerCase()) ?? []
 
       if (tags.includes('prd') || tags.includes('ready for pm agent')) {
         await processPRD(task)
@@ -430,15 +448,16 @@ app.post('/webhook', async (req, res) => {
     }
 
     // Триггер 2 — статус задачи изменён на "ready for pm agent"
-    if (event.event === 'taskStatusUpdated') {
-      const newStatus = event.task?.status?.status?.toLowerCase() ?? ''
+    if (eventType === 'taskStatusUpdated') {
+      const newStatus = payload.status?.status?.toLowerCase() ?? ''
       if (newStatus === 'ready for pm agent' || newStatus === 'ready for ai') {
-        await processPRD(event.task)
+        const task = await getTask(taskId)
+        await processPRD(task)
       }
     }
 
     // Триггер 3 — комментарий с упоминанием PM-агента
-    if (event.event === 'taskCommentPosted') {
+    if (eventType === 'taskCommentPosted') {
       const commentText = event.comment?.comment_text?.toLowerCase() ?? ''
       if (
         commentText.includes('@pm-агент') ||
