@@ -539,10 +539,15 @@ async function pollForPRDTasks() {
     console.log(`\n⏰ Polling PRD задач: найдено ${tasks.length}`)
 
     for (const task of tasks) {
-      // Пропускаем уже обработанные задачи
-      if (processedTasks.has(task.id)) continue
+      console.log(`🔍 Проверяем PRD задачу: ${task.name} (${task.id})`)
 
-      // Проверяем что задача не была уже обработана (есть комментарий от PM агента)
+      // Пропускаем уже обработанные в этой сессии
+      if (processedTasks.has(task.id)) {
+        console.log(`⏭️ Уже в processedTasks — пропускаем`)
+        continue
+      }
+
+      // Проверяем комментарии
       const comments = await getComments(task.id)
       const alreadyProcessed = comments.find(c =>
         c.comment_text?.includes('PM-агент завершил') ||
@@ -550,11 +555,12 @@ async function pollForPRDTasks() {
       )
 
       if (alreadyProcessed) {
+        console.log(`⏭️ Уже обработана (есть комментарий) — пропускаем`)
         processedTasks.add(task.id)
         continue
       }
 
-      console.log(`📋 Найдена новая PRD задача: ${task.name}`)
+      console.log(`✅ Новая PRD задача! Запускаем: ${task.name}`)
       processedTasks.add(task.id)
       await processPRD(task)
       await sleep(1000)
