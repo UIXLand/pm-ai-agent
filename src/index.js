@@ -20,6 +20,7 @@ const clickup = axios.create({
 
 const TEAM_ID = process.env.CLICKUP_TEAM_ID
 const LIST_ID = process.env.CLICKUP_LIST_ID
+const SPACE_ID = process.env.CLICKUP_SPACE_ID || '901510407552' 
 
 // Защита от повторной обработки одной задачи
 const processedTasks = new Set()
@@ -326,7 +327,8 @@ async function checkDeadlines() {
   try {
     const now = Date.now()
 
-    const response = await clickup.get(`/team/${TEAM_ID}/task`, {
+    // Получаем задачи только из нужного спейса
+    const response = await clickup.get(`/space/${SPACE_ID}/task`, {
       params: {
         due_date_lt: now,
         include_closed: false,
